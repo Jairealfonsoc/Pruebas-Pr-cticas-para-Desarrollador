@@ -1,0 +1,380 @@
+reservacion-salas.js
+const express = require('express');
+const Reserva = require('../models/Reserva');  // Modelo de Reserva
+const Sala = require('../models/Sala');        // Modelo de Sala
+
+const router = express.Router();
+
+// Ruta para crear una nueva reserva
+router.post('/', async (req, res) => {
+  try {
+    const { salaId, usuario, fecha, duracion } = req.body;
+
+    // Verifica que la sala exista
+    const sala = await Sala.findById(salaId);
+    if (!sala) {
+      return res.status(404).json({ message: 'Sala no encontrada' });
+    }
+
+    // Verifica que no haya un conflicto de horarios
+    const conflictos = await Reserva.find({
+      sala: salaId,
+      fecha: { $eq: new Date(fecha) }
+    });
+
+    if (conflictos.length > 0) {
+      return res.status(400).json({ message: 'Conflicto de horario, la sala ya está reservada para este tiempo' });
+    }
+
+    // Crear nueva reserva
+    const nuevaReserva = new Reserva({
+      sala: salaId,
+      usuario,
+      fecha: new Date(fecha),
+      duracion
+    });
+
+    await nuevaReserva.save();
+    res.status(201).json(nuevaReserva);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al crear la reserva', error });
+  }
+});
+
+// Ruta para obtener todas las reservas
+router.get('/', async (req, res) => {
+  try {
+    const reservas = await Reserva.find().populate('sala');  // Trae los datos de la sala relacionada
+    res.status(200).json(reservas);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener las reservas', error });
+  }
+});
+
+// Ruta para obtener una reserva específica por su ID
+router.get('/:id', async (req, res) => {
+  try {
+    const reserva = await Reserva.findById(req.params.id).populate('sala');
+    if (!reserva) {
+      return res.status(404).json({ message: 'Reserva no encontrada' });
+    }
+    res.status(200).json(reserva);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener la reserva', error });
+  }
+});
+
+// Ruta para actualizar una reserva
+router.put('/:id', async (req, res) => {
+  try {
+    const { salaId, usuario, fecha, duracion } = req.body;
+
+    // Verifica que la sala exista
+    const sala = await Sala.findById(salaId);
+    if (!sala) {
+      return res.status(404).json({ message: 'Sala no encontrada' });
+    }
+
+    // Actualiza la reserva
+    const reservaActualizada = await Reserva.findByIdAndUpdate(
+      req.params.id,
+      { sala: salaId, usuario, fecha: new Date(fecha), duracion },
+      { new: true }
+    );
+
+    if (!reservaActualizada) {
+      return res.status(404).json({ message: 'Reserva no encontrada' });
+    }
+
+    res.status(200).json(reservaActualizada);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar la reserva', error });
+  }
+});
+
+// Ruta para eliminar una reserva
+router.delete('/:id', async (req, res) => {
+  try {
+    const reservaEliminada = await Reserva.findByIdAndDelete(req.params.id);
+    if (!reservaEliminada) {
+      return res.status(404).json({ message: 'Reserva no encontrada' });
+    }
+    res.status(200).json({ message: 'Reserva eliminada' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al eliminar la reserva', error });
+  }
+});
+
+module.exports = router;
+
+server.js
+// Importación de módulos necesarios
+const express = require('express');           // Framework web
+const mongoose = require('mongoose');         // ORM para MongoDB
+const cors = require('cors');                 // Middleware para permitir solicitudes de diferentes dominios
+const bodyParser = require('body-parser');    // Middleware para procesar cuerpos de solicitudes
+const nodemailer = require('nodemailer');     // Para enviar correos electrónicos
+
+// Inicializar la aplicación de Express
+const app = express();
+
+// Middleware para manejar CORS y solicitudes JSON
+app.use(cors());                              // Habilita CORS
+app.use(bodyParser.json());                   // Permite que Express procese cuerpos de solicitudes JSON
+
+// Conexión a la base de datos MongoDB
+mongoose.connect('mongodb://localhost/reservacion-salas', {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+})
+.then(() => console.log('Conectado a MongoDB'))
+.catch(err => console.error('Error al conectar a MongoDB', err));
+
+// Rutas de la aplicación
+const salaRoutes = require('./routes/salas');         // Importar rutas de las salas
+const reservaRoutes = require('./routes/reservas');   // Importar rutas de las reservas
+
+// Rutas de la API
+app.use('/api/salas', salaRoutes);          // Rutas para gestión de salas
+app.use('/api/reservas', reservaRoutes);    // Rutas para gestión de reservas
+
+// Configuración del puerto
+const PORT = process.env.PORT || 4000;     // Definir el puerto, usa 4000 por defecto si no se especifica
+
+// Iniciar el servidor
+app.listen(PORT, () => {
+    console.log(`Servidor corriendo en el puerto ${PORT}`);
+});
+
+models_salas.js
+const mongoose = require('mongoose');
+
+// Definir el esquema de la Sala
+const SalaSchema = new mongoose.Schema({
+  nombre: {
+    type: String,
+    required: true  // El nombre de la sala es obligatorio
+  },
+  capacidad: {
+    type: Number,
+    required: true  // La capacidad de la sala es obligatoria
+  },
+  recursos: {
+    type: String,
+    required: true  // Lista de recursos (proyector, pizarra, etc.)
+  },
+  ubicacion: {
+    type: String,
+    required: true  // La ubicación de la sala es obligatoria
+  }
+});
+
+// Exportar el modelo de Sala basado en el esquema
+module.exports = mongoose.model('Sala', SalaSchema);
+
+models_reserva.js
+
+const mongoose = require('mongoose');
+
+// Definir el esquema de la Reserva
+const ReservaSchema = new mongoose.Schema({
+  sala: {
+    type: mongoose.Schema.Types.ObjectId,   // Referencia al ID de la sala (relación con el modelo Sala)
+    ref: 'Sala',                           // Hace referencia al modelo 'Sala'
+    required: true                         // La sala es obligatoria para una reserva
+  },
+  usuario: {
+    type: String,                          // Nombre del usuario que realiza la reserva
+    required: true                         // El nombre del usuario es obligatorio
+  },
+  fecha: {
+    type: Date,                            // Fecha y hora de la reserva
+    required: true                         // La fecha de la reserva es obligatoria
+  },
+  duracion: {
+    type: Number,                          // Duración de la reserva en horas (o minutos)
+    required: true                         // La duración es obligatoria
+  }
+});
+
+// Exportar el modelo de Reserva basado en el esquema
+module.exports = mongoose.model('Reserva', ReservaSchema);
+
+
+
+// Ruta para eliminar una sala
+router.delete('/:id', async (req, res) => {
+  try {
+    const salaEliminada = await Sala.findByIdAndDelete(req.params.id);  // Eliminar la sala por ID
+
+    if (!salaEliminada) {
+      return res.status(404).json({ message: 'Sala no encontrada' });
+    }
+
+    res.status(200).json({ message: 'Sala eliminada con éxito' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al eliminar la sala', error });
+  }
+});
+
+module.exports = router;
+
+routes_salas.js
+
+const express = require('express');
+const Sala = require('../models/Sala');  // Importar el modelo de Sala
+
+const router = express.Router();
+
+// Ruta para crear una nueva sala
+router.post('/', async (req, res) => {
+  const { nombre, capacidad, recursos, ubicacion } = req.body;
+
+  try {
+    const nuevaSala = new Sala({
+      nombre,
+      capacidad,
+      recursos,
+      ubicacion
+    });
+
+    await nuevaSala.save();  // Guardar la sala en la base de datos
+    res.status(201).json(nuevaSala);  // Responder con la sala creada
+  } catch (error) {
+    res.status(500).json({ message: 'Error al crear la sala', error });
+  }
+});
+
+// Ruta para obtener todas las salas
+router.get('/', async (req, res) => {
+  try {
+    const salas = await Sala.find();  // Obtener todas las salas de la base de datos
+    res.status(200).json(salas);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener las salas', error });
+  }
+});
+
+// Ruta para obtener una sala por su ID
+router.get('/:id', async (req, res) => {
+  try {
+    const sala = await Sala.findById(req.params.id);  // Buscar sala por ID
+    if (!sala) {
+      return res.status(404).json({ message: 'Sala no encontrada' });
+    }
+    res.status(200).json(sala);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener la sala', error });
+  }
+});
+
+// Ruta para actualizar una sala
+router.put('/:id', async (req, res) => {
+  const { nombre, capacidad, recursos, ubicacion } = req.body;
+
+  try {
+    const salaActualizada = await Sala.findByIdAndUpdate(
+      req.params.id,
+      { nombre, capacidad, recursos, ubicacion },
+      { new: true }  // Devuelve la sala actualizada
+    );
+
+    if (!salaActualizada) {
+      return res.status(404).json({ message: 'Sala no encontrada' });
+    }
+
+    res.status(200).json(salaActualizada);
+  } catch (error) {
+    res.status(500).json({ message: 'Error al actualizar la sala', error });
+  }
+});
+
+// Ruta para eliminar una sala
+router.delete('/:id', async (req, res) => {
+  try {
+    const salaEliminada = await Sala.findByIdAndDelete(req.params.id);  // Eliminar la sala por ID
+
+    if (!salaEliminada) {
+      return res.status(404).json({ message: 'Sala no encontrada' });
+    }
+
+    res.status(200).json({ message: 'Sala eliminada con éxito' });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al eliminar la sala', error });
+  }
+});
+
+module.exports = router;
+
+
+module.exports = router;
+
+routes_reservas.js
+
+const express = require('express');
+const router = express.Router();
+
+// Modelo de Reserva (suponiendo que usas Mongoose)
+const Reserva = require('../models/reserva');
+
+// Crear una nueva reserva
+router.post('/', async (req, res) => {
+    const nuevaReserva = new Reserva(req.body);
+    try {
+        const reservaGuardada = await nuevaReserva.save();
+        res.status(201).json(reservaGuardada);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// Obtener todas las reservas
+router.get('/', async (req, res) => {
+    try {
+        const reservas = await Reserva.find();
+        res.status(200).json(reservas);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Obtener una reserva por ID
+router.get('/:id', async (req, res) => {
+    try {
+        const reserva = await Reserva.findById(req.params.id);
+        if (!reserva) {
+            return res.status(404).json({ message: 'Reserva no encontrada' });
+        }
+        res.status(200).json(reserva);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Actualizar una reserva
+router.put('/:id', async (req, res) => {
+    try {
+        const reservaActualizada = await Reserva.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        if (!reservaActualizada) {
+            return res.status(404).json({ message: 'Reserva no encontrada' });
+        }
+        res.status(200).json(reservaActualizada);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// Eliminar una reserva
+router.delete('/:id', async (req, res) => {
+    try {
+        const reservaEliminada = await Reserva.findByIdAndDelete(req.params.id);
+        if (!reservaEliminada) {
+            return res.status(404).json({ message: 'Reserva no encontrada' });
+        }
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
