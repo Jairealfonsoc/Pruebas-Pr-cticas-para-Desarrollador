@@ -1,380 +1,226 @@
-reservacion-salas.js
+# I will now create a .txt file with all the project-related code content mentioned in the conversation.
+
+code_content = """
+### Backend (Node.js - Express.js)
+
+```javascript
 const express = require('express');
-const Reserva = require('../models/Reserva');  // Modelo de Reserva
-const Sala = require('../models/Sala');        // Modelo de Sala
+const nodemailer = require('nodemailer');
+const mongoose = require('mongoose');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const { body, validationResult } = require('express-validator');
+const Sala = require('./models/Sala');
+const Reserva = require('./models/Reserva');
+const Usuario = require('./models/Usuario');
 
-const router = express.Router();
-
-// Ruta para crear una nueva reserva
-router.post('/', async (req, res) => {
-  try {
-    const { salaId, usuario, fecha, duracion } = req.body;
-
-    // Verifica que la sala exista
-    const sala = await Sala.findById(salaId);
-    if (!sala) {
-      return res.status(404).json({ message: 'Sala no encontrada' });
-    }
-
-    // Verifica que no haya un conflicto de horarios
-    const conflictos = await Reserva.find({
-      sala: salaId,
-      fecha: { $eq: new Date(fecha) }
-    });
-
-    if (conflictos.length > 0) {
-      return res.status(400).json({ message: 'Conflicto de horario, la sala ya está reservada para este tiempo' });
-    }
-
-    // Crear nueva reserva
-    const nuevaReserva = new Reserva({
-      sala: salaId,
-      usuario,
-      fecha: new Date(fecha),
-      duracion
-    });
-
-    await nuevaReserva.save();
-    res.status(201).json(nuevaReserva);
-  } catch (error) {
-    res.status(500).json({ message: 'Error al crear la reserva', error });
-  }
-});
-
-// Ruta para obtener todas las reservas
-router.get('/', async (req, res) => {
-  try {
-    const reservas = await Reserva.find().populate('sala');  // Trae los datos de la sala relacionada
-    res.status(200).json(reservas);
-  } catch (error) {
-    res.status(500).json({ message: 'Error al obtener las reservas', error });
-  }
-});
-
-// Ruta para obtener una reserva específica por su ID
-router.get('/:id', async (req, res) => {
-  try {
-    const reserva = await Reserva.findById(req.params.id).populate('sala');
-    if (!reserva) {
-      return res.status(404).json({ message: 'Reserva no encontrada' });
-    }
-    res.status(200).json(reserva);
-  } catch (error) {
-    res.status(500).json({ message: 'Error al obtener la reserva', error });
-  }
-});
-
-// Ruta para actualizar una reserva
-router.put('/:id', async (req, res) => {
-  try {
-    const { salaId, usuario, fecha, duracion } = req.body;
-
-    // Verifica que la sala exista
-    const sala = await Sala.findById(salaId);
-    if (!sala) {
-      return res.status(404).json({ message: 'Sala no encontrada' });
-    }
-
-    // Actualiza la reserva
-    const reservaActualizada = await Reserva.findByIdAndUpdate(
-      req.params.id,
-      { sala: salaId, usuario, fecha: new Date(fecha), duracion },
-      { new: true }
-    );
-
-    if (!reservaActualizada) {
-      return res.status(404).json({ message: 'Reserva no encontrada' });
-    }
-
-    res.status(200).json(reservaActualizada);
-  } catch (error) {
-    res.status(500).json({ message: 'Error al actualizar la reserva', error });
-  }
-});
-
-// Ruta para eliminar una reserva
-router.delete('/:id', async (req, res) => {
-  try {
-    const reservaEliminada = await Reserva.findByIdAndDelete(req.params.id);
-    if (!reservaEliminada) {
-      return res.status(404).json({ message: 'Reserva no encontrada' });
-    }
-    res.status(200).json({ message: 'Reserva eliminada' });
-  } catch (error) {
-    res.status(500).json({ message: 'Error al eliminar la reserva', error });
-  }
-});
-
-module.exports = router;
-
-server.js
-// Importación de módulos necesarios
-const express = require('express');           // Framework web
-const mongoose = require('mongoose');         // ORM para MongoDB
-const cors = require('cors');                 // Middleware para permitir solicitudes de diferentes dominios
-const bodyParser = require('body-parser');    // Middleware para procesar cuerpos de solicitudes
-const nodemailer = require('nodemailer');     // Para enviar correos electrónicos
-
-// Inicializar la aplicación de Express
 const app = express();
+app.use(express.json());
 
-// Middleware para manejar CORS y solicitudes JSON
-app.use(cors());                              // Habilita CORS
-app.use(bodyParser.json());                   // Permite que Express procese cuerpos de solicitudes JSON
-
-// Conexión a la base de datos MongoDB
-mongoose.connect('mongodb://localhost/reservacion-salas', {
+mongoose.connect('mongodb://localhost/salas', {
     useNewUrlParser: true,
-    useUnifiedTopology: true
-})
-.then(() => console.log('Conectado a MongoDB'))
-.catch(err => console.error('Error al conectar a MongoDB', err));
-
-// Rutas de la aplicación
-const salaRoutes = require('./routes/salas');         // Importar rutas de las salas
-const reservaRoutes = require('./routes/reservas');   // Importar rutas de las reservas
-
-// Rutas de la API
-app.use('/api/salas', salaRoutes);          // Rutas para gestión de salas
-app.use('/api/reservas', reservaRoutes);    // Rutas para gestión de reservas
-
-// Configuración del puerto
-const PORT = process.env.PORT || 4000;     // Definir el puerto, usa 4000 por defecto si no se especifica
-
-// Iniciar el servidor
-app.listen(PORT, () => {
-    console.log(`Servidor corriendo en el puerto ${PORT}`);
+    useUnifiedTopology: true,
 });
 
-models_salas.js
-const mongoose = require('mongoose');
+// Middleware de autenticación JWT
+const authMiddleware = (req, res, next) => {
+    const token = req.header('x-auth-token');
+    if (!token) return res.status(401).json({ msg: 'No token, autorización denegada' });
 
-// Definir el esquema de la Sala
-const SalaSchema = new mongoose.Schema({
-  nombre: {
-    type: String,
-    required: true  // El nombre de la sala es obligatorio
-  },
-  capacidad: {
-    type: Number,
-    required: true  // La capacidad de la sala es obligatoria
-  },
-  recursos: {
-    type: String,
-    required: true  // Lista de recursos (proyector, pizarra, etc.)
-  },
-  ubicacion: {
-    type: String,
-    required: true  // La ubicación de la sala es obligatoria
-  }
-});
-
-// Exportar el modelo de Sala basado en el esquema
-module.exports = mongoose.model('Sala', SalaSchema);
-
-models_reserva.js
-
-const mongoose = require('mongoose');
-
-// Definir el esquema de la Reserva
-const ReservaSchema = new mongoose.Schema({
-  sala: {
-    type: mongoose.Schema.Types.ObjectId,   // Referencia al ID de la sala (relación con el modelo Sala)
-    ref: 'Sala',                           // Hace referencia al modelo 'Sala'
-    required: true                         // La sala es obligatoria para una reserva
-  },
-  usuario: {
-    type: String,                          // Nombre del usuario que realiza la reserva
-    required: true                         // El nombre del usuario es obligatorio
-  },
-  fecha: {
-    type: Date,                            // Fecha y hora de la reserva
-    required: true                         // La fecha de la reserva es obligatoria
-  },
-  duracion: {
-    type: Number,                          // Duración de la reserva en horas (o minutos)
-    required: true                         // La duración es obligatoria
-  }
-});
-
-// Exportar el modelo de Reserva basado en el esquema
-module.exports = mongoose.model('Reserva', ReservaSchema);
-
-
-
-// Ruta para eliminar una sala
-router.delete('/:id', async (req, res) => {
-  try {
-    const salaEliminada = await Sala.findByIdAndDelete(req.params.id);  // Eliminar la sala por ID
-
-    if (!salaEliminada) {
-      return res.status(404).json({ message: 'Sala no encontrada' });
+    try {
+        const decoded = jwt.verify(token, 'your_jwt_secret');
+        req.user = decoded.user;
+        next();
+    } catch (err) {
+        res.status(401).json({ msg: 'Token no es válido' });
     }
+};
 
-    res.status(200).json({ message: 'Sala eliminada con éxito' });
-  } catch (error) {
-    res.status(500).json({ message: 'Error al eliminar la sala', error });
-  }
+// Modelo de Sala
+const salaSchema = new mongoose.Schema({
+    nombre: String,
+    capacidad: Number,
+    recursos: [String],
+    ubicacion: String,
+});
+const Sala = mongoose.model('Sala', salaSchema);
+
+// Modelo de Reserva
+const reservaSchema = new mongoose.Schema({
+    salaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Sala' },
+    usuario: String,
+    fecha: Date,
+    duracion: Number,
+});
+const Reserva = mongoose.model('Reserva', reservaSchema);
+
+// Modelo de Usuario
+const usuarioSchema = new mongoose.Schema({
+    nombre: String,
+    email: String,
+    password: String,
+    rol: { type: String, enum: ['admin', 'empleado'], default: 'empleado' },
+});
+const Usuario = mongoose.model('Usuario', usuarioSchema);
+
+// Rutas de gestión de salas
+app.post('/salas', authMiddleware, async (req, res) => {
+    const { nombre, capacidad, recursos, ubicacion } = req.body;
+    const nuevaSala = new Sala({ nombre, capacidad, recursos, ubicacion });
+    await nuevaSala.save();
+    res.json(nuevaSala);
 });
 
-module.exports = router;
-
-routes_salas.js
-
-const express = require('express');
-const Sala = require('../models/Sala');  // Importar el modelo de Sala
-
-const router = express.Router();
-
-// Ruta para crear una nueva sala
-router.post('/', async (req, res) => {
-  const { nombre, capacidad, recursos, ubicacion } = req.body;
-
-  try {
-    const nuevaSala = new Sala({
-      nombre,
-      capacidad,
-      recursos,
-      ubicacion
-    });
-
-    await nuevaSala.save();  // Guardar la sala en la base de datos
-    res.status(201).json(nuevaSala);  // Responder con la sala creada
-  } catch (error) {
-    res.status(500).json({ message: 'Error al crear la sala', error });
-  }
+app.get('/salas', async (req, res) => {
+    const salas = await Sala.find();
+    res.json(salas);
 });
 
-// Ruta para obtener todas las salas
-router.get('/', async (req, res) => {
-  try {
-    const salas = await Sala.find();  // Obtener todas las salas de la base de datos
-    res.status(200).json(salas);
-  } catch (error) {
-    res.status(500).json({ message: 'Error al obtener las salas', error });
-  }
-});
-
-// Ruta para obtener una sala por su ID
-router.get('/:id', async (req, res) => {
-  try {
-    const sala = await Sala.findById(req.params.id);  // Buscar sala por ID
-    if (!sala) {
-      return res.status(404).json({ message: 'Sala no encontrada' });
+// Sistema de reservas
+app.post('/reservas', [
+    body('salaId').notEmpty().withMessage('Sala ID es requerido'),
+    body('usuario').notEmpty().withMessage('Usuario es requerido'),
+    body('fecha').isISO8601().withMessage('Fecha no válida'),
+    body('duracion').isInt({ gt: 0 }).withMessage('Duración debe ser un número positivo'),
+], authMiddleware, async (req, res) => {
+    const errores = validationResult(req);
+    if (!errores.isEmpty()) {
+        return res.status(400).json({ errors: errores.array() });
     }
-    res.status(200).json(sala);
-  } catch (error) {
-    res.status(500).json({ message: 'Error al obtener la sala', error });
-  }
-});
-
-// Ruta para actualizar una sala
-router.put('/:id', async (req, res) => {
-  const { nombre, capacidad, recursos, ubicacion } = req.body;
-
-  try {
-    const salaActualizada = await Sala.findByIdAndUpdate(
-      req.params.id,
-      { nombre, capacidad, recursos, ubicacion },
-      { new: true }  // Devuelve la sala actualizada
-    );
-
-    if (!salaActualizada) {
-      return res.status(404).json({ message: 'Sala no encontrada' });
-    }
-
-    res.status(200).json(salaActualizada);
-  } catch (error) {
-    res.status(500).json({ message: 'Error al actualizar la sala', error });
-  }
-});
-
-// Ruta para eliminar una sala
-router.delete('/:id', async (req, res) => {
-  try {
-    const salaEliminada = await Sala.findByIdAndDelete(req.params.id);  // Eliminar la sala por ID
-
-    if (!salaEliminada) {
-      return res.status(404).json({ message: 'Sala no encontrada' });
-    }
-
-    res.status(200).json({ message: 'Sala eliminada con éxito' });
-  } catch (error) {
-    res.status(500).json({ message: 'Error al eliminar la sala', error });
-  }
-});
-
-module.exports = router;
-
-
-module.exports = router;
-
-routes_reservas.js
-
-const express = require('express');
-const router = express.Router();
-
-// Modelo de Reserva (suponiendo que usas Mongoose)
-const Reserva = require('../models/reserva');
-
-// Crear una nueva reserva
-router.post('/', async (req, res) => {
+    
     const nuevaReserva = new Reserva(req.body);
-    try {
-        const reservaGuardada = await nuevaReserva.save();
-        res.status(201).json(reservaGuardada);
-    } catch (error) {
-        res.status(400).json({ error: error.message });
-    }
+    await nuevaReserva.save();
+    res.json(nuevaReserva);
 });
 
-// Obtener todas las reservas
-router.get('/', async (req, res) => {
-    try {
-        const reservas = await Reserva.find();
-        res.status(200).json(reservas);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+// Notificaciones de reservas
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: {
+        user: 'tuemail@gmail.com',
+        pass: 'tucontraseña',
+    },
 });
 
-// Obtener una reserva por ID
-router.get('/:id', async (req, res) => {
-    try {
-        const reserva = await Reserva.findById(req.params.id);
-        if (!reserva) {
-            return res.status(404).json({ message: 'Reserva no encontrada' });
+app.post('/notificar', authMiddleware, async (req, res) => {
+    const { to, subject, text } = req.body;
+    const mailOptions = {
+        from: 'tuemail@gmail.com',
+        to,
+        subject,
+        text,
+    };
+
+    transporter.sendMail(mailOptions, (error, info) => {
+        if (error) {
+            return res.status(500).json({ msg: 'Error al enviar el correo', error });
         }
-        res.status(200).json(reserva);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+        res.json({ msg: 'Correo enviado', info });
+    });
 });
 
-// Actualizar una reserva
-router.put('/:id', async (req, res) => {
-    try {
-        const reservaActualizada = await Reserva.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        if (!reservaActualizada) {
-            return res.status(404).json({ message: 'Reserva no encontrada' });
-        }
-        res.status(200).json(reservaActualizada);
-    } catch (error) {
-        res.status(400).json({ error: error.message });
+// Sistema de autenticación y roles
+app.post('/register', async (req, res) => {
+    const { nombre, email, password } = req.body;
+    let usuario = await Usuario.findOne({ email });
+    if (usuario) {
+        return res.status(400).json({ msg: 'El usuario ya existe' });
     }
+
+    usuario = new Usuario({ nombre, email, password });
+    const salt = await bcrypt.genSalt(10);
+    usuario.password = await bcrypt.hash(password, salt);
+
+    await usuario.save();
+    const payload = { user: { id: usuario.id } };
+    const token = jwt.sign(payload, 'your_jwt_secret', { expiresIn: 3600 });
+    res.json({ token });
 });
 
-// Eliminar una reserva
-router.delete('/:id', async (req, res) => {
-    try {
-        const reservaEliminada = await Reserva.findByIdAndDelete(req.params.id);
-        if (!reservaEliminada) {
-            return res.status(404).json({ message: 'Reserva no encontrada' });
-        }
-        res.status(204).send();
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+app.post('/login', async (req, res) => {
+    const { email, password } = req.body;
+    let usuario = await Usuario.findOne({ email });
+    if (!usuario) {
+        return res.status(400).json({ msg: 'Usuario no existe' });
     }
+
+    const esMatch = await bcrypt.compare(password, usuario.password);
+    if (!esMatch) {
+        return res.status(400).json({ msg: 'Contraseña incorrecta' });
+    }
+
+    const payload = { user: { id: usuario.id } };
+    const token = jwt.sign(payload, 'your_jwt_secret', { expiresIn: 3600 });
+    res.json({ token });
 });
 
-module.exports = router;
+// Reporte de uso
+app.get('/reporte-uso', authMiddleware, async (req, res) => {
+    const reservas = await Reserva.aggregate([
+        { $group: { _id: '$salaId', totalReservas: { $sum: 1 }, totalHoras: { $sum: '$duracion' } } },
+        { $lookup: { from: 'salas', localField: '_id', foreignField: '_id', as: 'sala' } },
+    ]);
+    res.json(reservas);
+});
+
+app.listen(5000, () => {
+    console.log('Servidor corriendo en el puerto 5000');
+});
+Frontend (React.js)
+javascript
+Mostrar siempre los detalles
+
+Copiar código
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+const Salas = () => {
+    const [salas, setSalas] = useState([]);
+
+    useEffect(() => {
+        const obtenerSalas = async () => {
+            const response = await axios.get('/salas');
+            setSalas(response.data);
+        };
+        obtenerSalas();
+    }, []);
+
+    return (
+        <div>
+            <h1>Salas Disponibles</h1>
+            <ul>
+                {salas.map(sala => (
+                    <li key={sala._id}>{sala.nombre} - Capacidad: {sala.capacidad}</li>
+                ))}
+            </ul>
+        </div>
+    );
+};
+
+const CrearReserva = () => {
+    const [salaId, setSalaId] = useState('');
+    const [usuario, setUsuario] = useState('');
+    const [fecha, setFecha] = useState('');
+    const [duracion, setDuracion] = useState('');
+
+    const crearReserva = async () => {
+        const nuevaReserva = { salaId, usuario, fecha, duracion };
+        const response = await axios.post('/reservas', nuevaReserva);
+        console.log(response.data);
+    };
+
+    return (
+        <div>
+            <h1>Crear Reserva</h1>
+            <form onSubmit={crearReserva}>
+                <input type="text" placeholder="Sala ID" value={salaId} onChange={e => setSalaId(e.target.value)} />
+                <input type="text" placeholder="Usuario" value={usuario} onChange={e => setUsuario(e.target.value)} />
+                <input type="date" value={fecha} onChange={e => setFecha(e.target.value)} />
+                <input type="number" placeholder="Duración" value={duracion} onChange={e => setDuracion(e.target.value)} />
+                <button type="submit">Reservar</button>
+            </form>
+        </div>
+    );
+};
+
+export { Salas, CrearReserva };
